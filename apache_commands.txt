@@ -1,0 +1,90 @@
+sudo apt update
+sudo apt install -y apache2 apache2-utils
+sudo mkdir -p /root/apache-backups
+sudo cp -a /etc/apache2 /root/apache-backups/apache2-$(date +%F-%T)
+
+# Write apache2.conf (overwrites)
+sudo tee /etc/apache2/apache2.conf > /dev/null <<'EOF'
+# (full apache2.conf content from step 2 above)
+Mutex file:${APACHE_LOCK_DIR} default
+PidFile ${APACHE_PID_FILE}
+Timeout 300
+KeepAlive On
+MaxKeepAliveRequests 100
+KeepAliveTimeout 5
+User ${APACHE_RUN_USER}
+Group ${APACHE_RUN_GROUP}
+HostnameLookups Off
+ErrorLog ${APACHE_LOG_DIR}/error.log
+LogLevel warn
+IncludeOptional mods-enabled/*.load
+IncludeOptional mods-enabled/*.conf
+Include ports.conf
+<Directory />
+    Options FollowSymLinks
+    AllowOverride None
+    Require all denied
+</Directory>
+<Directory /var/www/>
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Require all granted
+</Directory>
+<Directory /usr/share>
+    AllowOverride None
+    Require all granted
+</Directory>
+<Directory /var/www/html>
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Require all granted
+</Directory>
+AccessFileName .htaccess
+IncludeOptional conf-enabled/*.conf
+IncludeOptional sites-enabled/*.conf
+EOF
+
+# Write 000-default.conf
+sudo tee /etc/apache2/sites-available/000-default.conf > /dev/null <<'EOF'
+<VirtualHost *:80>
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
+    <Directory /var/www/html>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+EOF
+
+sudo a2enmod rewrite
+sudo a2enmod headers
+sudo systemctl restart apache2
+sudo apache2ctl configtest
+
+# Create site files & .htaccess
+sudo mkdir -p /var/www/html
+sudo chown -R www-data:www-data /var/www/html
+sudo chmod -R 755 /var/www/html
+sudo tee /var/www/html/index.html > /dev/null <<'EOF'
+<!doctype html><html><head><meta charset="utf-8"><title>Apache</title></head><body><h1>It works</h1></body></html>
+EOF
+
+sudo tee /var/www/html/.htaccess > /dev/null <<'EOF'
+RewriteEngine On
+RewriteRule ^test/?$ / [L,R=302]
+Options -Indexes
+<FilesMatch "^\.env">
+    Require all denied
+</FilesMatch>
+EOF
+
+sudo chown www-data:www-data /var/www/html/.htaccess
+sudo chmod 644 /var/www/html/.htaccess
+
+# Test
+curl -I http://localhost/test
+sudo tail -n 50 /var/log/apache2/error.log
+
